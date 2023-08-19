@@ -51,6 +51,7 @@ public class TelegramBot extends TelegramLongPollingBot {
             defaultCommandReceived(chatId);
           } else if (TRIAL_COMMAND.equals(lastCommand)) {
             sendAdminMessage(botConfig.getAdminChatId(), messageText);
+            succesCommandReceived(chatId);
           }
           lastCommand = null;
       }
@@ -82,6 +83,10 @@ public class TelegramBot extends TelegramLongPollingBot {
   private void defaultCommandReceived(Long chatId) {
     String answer = "Пожалуйста, выберите доступную в меню команду.";
     sendMessage(chatId, answer, true);
+  }
+  private void succesCommandReceived(Long chatId) {
+    String answer = "Спасибо, Ваша заявка зарегистрирована. Мы скоро свяжемся с Вами!";
+    sendMessage(chatId, answer, false);
   }
 
   private void sendAdminMessage(Long chatId, String message) {
