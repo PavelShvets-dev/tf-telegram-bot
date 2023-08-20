@@ -22,10 +22,9 @@ import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.Keyboard
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 import ru.growapp.tftelegram.config.BotConfig;
 import ru.growapp.tftelegram.dic.Constants;
+import ru.growapp.tftelegram.model.Button;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
+import java.util.*;
 import java.util.stream.IntStream;
 
 @Component
@@ -38,12 +37,13 @@ public class TelegramBot extends TelegramLongPollingBot {
 
   private final Constants constants = new Constants();
 
-  private String lastCommand = null;
-  private String selectedInstructor = null;
-  private String selectedWorkout = null;
-  private String contact = null;
+  private HashMap<Long, String> lastCommand = new HashMap<>();
+  private HashMap<Long, String> selectedInstructor = new HashMap<>();
+  private HashMap<Long, String> selectedWorkout = new HashMap<>();
+  private HashMap<Long, String> contact = new HashMap<>();
   private final String START_COMMAND = "/start";
   private final String TRIAL_COMMAND = "/trial";
+  private final String FEEDBACK_COMMAND = "/feedback";
 
   private final String downArrow = "\u2B07";
 
@@ -52,69 +52,87 @@ public class TelegramBot extends TelegramLongPollingBot {
     if (update.hasMessage() && update.getMessage().hasText()) {
       String messageText = update.getMessage().getText();
       long chatId = update.getMessage().getChatId();
+      Long userId = update.getMessage().getFrom().getId();
 
       switch (messageText) {
         case START_COMMAND:
-          lastCommand = START_COMMAND;
-          selectedInstructor = null;
-          selectedWorkout = null;
-          contact = null;
+          lastCommand.put(userId, START_COMMAND);
+          selectedInstructor.remove(userId);
+          selectedWorkout.remove(userId);
+          contact.remove(userId);
           startCommandReceived(
             chatId,
             update.getMessage().getChat().getFirstName()
           );
           break;
         case TRIAL_COMMAND:
-          lastCommand = TRIAL_COMMAND;
-          selectedInstructor = null;
-          selectedWorkout = null;
-          contact = null;
-          trialCommandReceived(chatId);
+          lastCommand.put(userId, TRIAL_COMMAND);
+          selectedInstructor.remove(userId);
+          selectedWorkout.remove(userId);
+          contact.remove(userId);
+          trialCommandReceived(chatId, userId);
+          break;
+        case FEEDBACK_COMMAND:
+          lastCommand.put(userId, FEEDBACK_COMMAND);
+          selectedInstructor.remove(userId);
+          selectedWorkout.remove(userId);
+          contact.remove(userId);
+          feedbackCommandReceived(chatId);
           break;
         default:
-          if (messageText.isEmpty() && !TRIAL_COMMAND.equals(lastCommand)) {
+          if (messageText.trim().isEmpty() && !TRIAL_COMMAND.equals(lastCommand.get(userId))) {
             defaultCommandReceived(chatId);
-          } else if (TRIAL_COMMAND.equals(lastCommand)) {
+          } else if (TRIAL_COMMAND.equals(lastCommand.get(userId))) {
             if (selectedInstructor == null) {
               instructorCommandReceived(chatId);
             } else if (selectedWorkout == null) {
               workoutCommandReceived(chatId);
             } else {
-              sendAdminMessage(botConfig.getAdminChatId(), messageText);
-              succesCommandReceived(chatId);
+              sendAdminMessage(botConfig.getAdminChatId(), messageText, userId);
+              succesCommandReceived(chatId, userId);
             }
+          } else if (FEEDBACK_COMMAND.equals(lastCommand.get(userId))) {
+            sendFeedback(userId, update.getMessage().getFrom().getUserName(), messageText);
+            succesFeedbackReceived(chatId, userId);
+          } else {
+            startCommandReceived(chatId, update.getMessage().getChat().getFirstName());
           }
-          lastCommand = null;
+          lastCommand.remove(userId);
       }
     } else if (update.hasCallbackQuery()) {
       String callData = update.getCallbackQuery().getData();
       long chatId = update.getCallbackQuery().getMessage().getChatId();
+      Long userId = update.getCallbackQuery().getFrom().getId();
 
       if (callData.equals("trial_message")) {
-        lastCommand = TRIAL_COMMAND;
-        selectedInstructor = null;
-        selectedWorkout = null;
-        contact = null;
-        trialCommandReceived(chatId);
+        lastCommand.put(userId, TRIAL_COMMAND);
+        selectedInstructor.remove(userId);
+        selectedWorkout.remove(userId);
+        contact.remove(userId);
+        trialCommandReceived(chatId, userId);
       } else if (callData.startsWith("instructor_message")) {
-        selectedInstructor = callData.replace("instructor_message", "");
-        trialCommandReceived(chatId);
+        selectedInstructor.put(userId, callData.replace("instructor_message", ""));
+        trialCommandReceived(chatId, userId);
       } else if (callData.startsWith("workout_message")) {
-        selectedWorkout = constants.getWorkouts()[Integer.parseInt(callData.replace("workout_message", ""))];
-        trialCommandReceived(chatId);
+        selectedWorkout.put(userId, constants.getWorkouts()[Integer.parseInt(callData.replace("workout_message", ""))]);
+        trialCommandReceived(chatId, userId);
+      } else if (callData.startsWith("feedback_message")) {
+        lastCommand.put(userId, FEEDBACK_COMMAND);
+        feedbackCommandReceived(userId);
       }
     } else if (update.hasMessage() && update.getMessage().getContact() != null) {
       long chatId = update.getMessage().getChatId();
+      Long userId = update.getMessage().getFrom().getId();
 
-      contact = update.getMessage().getContact().getPhoneNumber() + ", "
+      contact.put(userId, update.getMessage().getContact().getPhoneNumber() + ", "
               + update.getMessage().getContact().getFirstName() + " "
-              + update.getMessage().getContact().getLastName();
+              + update.getMessage().getContact().getLastName());
 
-      if (selectedInstructor == null || selectedWorkout == null) {
-        trialCommandReceived(chatId);
+      if (selectedInstructor.get(userId) == null || selectedWorkout.get(userId) == null) {
+        trialCommandReceived(chatId, userId);
       } else {
-        sendAdminMessage(botConfig.getAdminChatId(), contact);
-        succesCommandReceived(chatId);
+        sendAdminMessage(botConfig.getAdminChatId(), contact.get(userId), userId);
+        succesCommandReceived(chatId, userId);
       }
     }
   }
@@ -124,23 +142,34 @@ public class TelegramBot extends TelegramLongPollingBot {
       "Здравствуйте, " +
       name +
       "! Добро пожаловать в сеть клубов Территория Фитнеса. Чем мы можем Вам помочь?";
-    sendMessage(chatId, answer, createTrialButton());
+    sendMessage(chatId, answer, createStartButtons());
   }
 
-  private void trialCommandReceived(Long chatId) {
-    if (selectedInstructor == null) {
+  private void trialCommandReceived(Long chatId, Long userId) {
+    if (selectedInstructor.get(userId) == null) {
       instructorCommandReceived(chatId);
-    } else if (selectedWorkout == null) {
+    } else if (selectedWorkout.get(userId) == null) {
       workoutCommandReceived(chatId);
     } else {
       String answer =
-              "Выбрана пробная тренировка: <b>" + selectedWorkout + "</b>"
-                + "\nТренер: <b>" + selectedInstructor + "</b>"
+              "Выбрана пробная тренировка: <b>" + selectedWorkout.get(userId) + "</b>"
+                + "\nТренер: <b>" + selectedInstructor.get(userId) + "</b>"
                 + "\nДля подтверждения записи укажите, пожалуйста, Ваши контактные данные в обратном сообщении. Например, <i>Имя Фамилия, телефон</i>."
                 + "\nИли нажмите на кнопку <b>Поделиться контактом</b> " + downArrow;
       sendMessage(chatId, answer, createSubmitButton());
     }
   }
+
+  private void feedbackCommandReceived(Long chatId) {
+    String answer = "Напишите, пожалуйста, обратную связь в ответном сообщении.";
+    sendMessage(chatId, answer);
+  }
+
+  private void sendFeedback(Long userId, String userName, String message) {
+    sendMessage(botConfig.getAdminChatId(), "Получена обратная связь от @" + userName + "\n" + message);
+    lastCommand.remove(userId);
+  }
+
   private void instructorCommandReceived(Long chatId) {
     String answer = "Выберите тренера:";
     sendMessage(chatId, answer, createInstructorButtons());
@@ -154,22 +183,32 @@ public class TelegramBot extends TelegramLongPollingBot {
     String answer = "Пожалуйста, выберите доступную в меню команду.";
     sendMessage(chatId, answer);
   }
-  private void succesCommandReceived(Long chatId) {
+  private void succesCommandReceived(Long chatId, Long userId) {
     String answer = "Спасибо, Ваша заявка зарегистрирована. Мы скоро свяжемся с Вами!";
     sendMessage(chatId, answer);
 
-    selectedWorkout = null;
-    selectedInstructor = null;
-    contact = null;
+    selectedWorkout.remove(userId);
+    selectedInstructor.remove(userId);
+    contact.remove(userId);
+    lastCommand.remove(userId);
+  }
+  private void succesFeedbackReceived(Long chatId, Long userId) {
+    String answer = "Спасибо за обратную связь!";
+    sendMessage(chatId, answer);
+
+    selectedWorkout.remove(userId);
+    selectedInstructor.remove(userId);
+    contact.remove(userId);
+    lastCommand.remove(userId);
   }
 
-  private void sendAdminMessage(Long chatId, String message) {
+  private void sendAdminMessage(Long chatId, String message, Long userId) {
     String answer = "Новая запись на пробную тренировку: \n" + message;
-    if (selectedInstructor != null) {
-      answer += "\nТренер: " + selectedInstructor;
+    if (selectedInstructor.get(userId) != null) {
+      answer += "\nТренер: " + selectedInstructor.get(userId);
     }
-    if (selectedWorkout != null) {
-      answer += "\nКласс: " + selectedWorkout;
+    if (selectedWorkout.get(userId) != null) {
+      answer += "\nКласс: " + selectedWorkout.get(userId);
     }
     sendMessage(chatId, answer);
   }
@@ -200,16 +239,30 @@ public class TelegramBot extends TelegramLongPollingBot {
     }
   }
 
-  private InlineKeyboardMarkup createTrialButton() {
+  private InlineKeyboardMarkup createStartButtons() {
     InlineKeyboardMarkup markupInline = new InlineKeyboardMarkup();
     List<List<InlineKeyboardButton>> rowsInline = new ArrayList<>();
-    List<InlineKeyboardButton> rowInline = new ArrayList<>();
-    InlineKeyboardButton trialButton = new InlineKeyboardButton();
-    trialButton.setText("Бесплатная пробная тренировка");
-    trialButton.setCallbackData("trial_message");
-    rowInline.add(trialButton);
-    // Set the keyboard to the markup
-    rowsInline.add(rowInline);
+
+    List<Button> buttons = new ArrayList<>();
+    Button trial = new Button();
+    trial.setDescription("Бесплатная пробная тренировка");
+    trial.setCallBack("trial_message");
+    buttons.add(trial);
+
+    Button feedback = new Button();
+    feedback.setDescription("Обратная связь");
+    feedback.setCallBack("feedback_message");
+    buttons.add(feedback);
+
+    buttons.forEach(b -> {
+      List<InlineKeyboardButton> rowInline = new ArrayList<>();
+      InlineKeyboardButton trialButton = new InlineKeyboardButton();
+      trialButton.setText(b.getDescription());
+      trialButton.setCallbackData(b.getCallBack());
+      rowInline.add(trialButton);
+      // Set the keyboard to the markup
+      rowsInline.add(rowInline);
+    });
     // Add it to the message
     markupInline.setKeyboard(rowsInline);
 
