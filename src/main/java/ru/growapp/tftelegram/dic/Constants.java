@@ -1,9 +1,9 @@
 package ru.growapp.tftelegram.dic;
 
-import lombok.Getter;
+import java.util.Arrays;
+import java.util.List;
 
 public class Constants {
-    @Getter
     private String[] instructors = new String[] {
             "Авдеева Екатерина",
             "Меняйлова Алина",
@@ -22,7 +22,6 @@ public class Constants {
             "Дзангиев Ислам"
     };
 
-    @Getter
     private String[] workouts = new String[] {
             "Растяжка и шпагат",
             "ТРХ",
@@ -50,6 +49,16 @@ public class Constants {
             "Кикбоксинг",
             "Сплит - тренировки (вдвоем)",
             "Тренировки в тренажерном зале",
-            "Индивидуальный запрос"
+            "Индивидуальный запрос",
+            "Bosu",
+            "HiiT - интервальная тренировка"
     };
+
+    public List<String> getInstructors() {
+        return Arrays.stream(instructors).sorted().toList();
+    }
+
+    public List<String> getWorkouts() {
+        return Arrays.stream(workouts).sorted().toList();
+    }
 }
