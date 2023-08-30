@@ -209,7 +209,7 @@ public class TelegramBot extends TelegramLongPollingBot {
               + update.getMessage().getContact().getFirstName() + " "
               + update.getMessage().getContact().getLastName());
 
-      if (selectedInstructor.get(userId) == null || selectedWorkout.get(userId) == null) {
+      if (selectedWorkout.get(userId) == null) {
         trialCommandReceived(chatId, userId);
       } else {
         sendAdminMessage(botConfig.getAdminChatId(), contact.get(userId), userId);
