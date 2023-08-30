@@ -23,7 +23,9 @@ import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.Keyboard
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 import ru.growapp.tftelegram.config.BotConfig;
 import ru.growapp.tftelegram.dic.Constants;
+import ru.growapp.tftelegram.google.api.GoogleSheetsController;
 import ru.growapp.tftelegram.model.Button;
+import ru.growapp.tftelegram.model.TFCalendar;
 
 import java.util.*;
 import java.util.stream.Collectors;
@@ -39,6 +41,8 @@ public class TelegramBot extends TelegramLongPollingBot {
 
   private final Constants constants = new Constants();
 
+  private final GoogleSheetsController googleSheetsController = new GoogleSheetsController();
+
   private HashMap<Long, String> lastCommand = new HashMap<>();
   private HashMap<Long, Integer> lastMessageId = new HashMap<>();
   private HashMap<Long, String> selectedStep = new HashMap<>();
@@ -48,6 +52,11 @@ public class TelegramBot extends TelegramLongPollingBot {
   private final String START_COMMAND = "/start";
   private final String TRIAL_COMMAND = "/trial";
   private final String FEEDBACK_COMMAND = "/feedback";
+
+  private final String CALENDAR_COMMAND = "/calendar";
+  private final String TODAY_COMMAND = "/today";
+  private final String TOMORROW_COMMAND = "/tomorrow";
+  private final String SEVEN_DAYS_COMMAND = "/7days";
 
   private final String downArrow = "\u2B07";
   private final String leftArrow = "\u2190";
@@ -69,7 +78,7 @@ public class TelegramBot extends TelegramLongPollingBot {
             chatId,
             update.getMessage().getChat().getFirstName(),
             update.getMessage().getChat().getUserName(),
-                  userId
+                  userId, true
           );
           break;
         case TRIAL_COMMAND:
@@ -86,9 +95,25 @@ public class TelegramBot extends TelegramLongPollingBot {
           contact.remove(userId);
           feedbackCommandReceived(chatId, userId);
           break;
+        case TODAY_COMMAND:
+          lastCommand.put(userId, TODAY_COMMAND);
+          calendarCommandReceived(chatId, userId, googleSheetsController.getTodaySpreadsheetData());
+          break;
+        case TOMORROW_COMMAND:
+          lastCommand.put(userId, TOMORROW_COMMAND);
+          calendarCommandReceived(chatId, userId, googleSheetsController.getTomorrowSpreadsheetData());
+          break;
+        case SEVEN_DAYS_COMMAND:
+          lastCommand.put(userId, SEVEN_DAYS_COMMAND);
+          calendarCommandReceived(chatId, userId, googleSheetsController.get7daysSpreadsheetData());
+          break;
         default:
           if (messageText.trim().isEmpty() && !TRIAL_COMMAND.equals(lastCommand.get(userId))) {
-            defaultCommandReceived(chatId, userId);
+            startCommandReceived(chatId,
+                    update.getMessage().getChat().getFirstName(),
+                    update.getMessage().getChat().getUserName(),
+                    userId,
+                    false);
           } else if (TRIAL_COMMAND.equals(lastCommand.get(userId))) {
             if (selectedInstructor == null) {
               instructorCommandReceived(chatId, userId);
@@ -106,7 +131,8 @@ public class TelegramBot extends TelegramLongPollingBot {
                     chatId,
                     update.getMessage().getChat().getFirstName(),
                     update.getMessage().getChat().getUserName(),
-                    userId
+                    userId,
+                    false
             );
           }
           lastCommand.remove(userId);
@@ -135,6 +161,18 @@ public class TelegramBot extends TelegramLongPollingBot {
       } else if (callData.startsWith("feedback_message")) {
         lastCommand.put(userId, FEEDBACK_COMMAND);
         feedbackCommandReceived(chatId, userId);
+      } else if (callData.startsWith("calendar_message")) {
+        lastCommand.put(userId, CALENDAR_COMMAND);
+        calendarCommandReceived(chatId, userId, null);
+      } else if (callData.startsWith("today_message")) {
+        lastCommand.put(userId, TODAY_COMMAND);
+        calendarCommandReceived(chatId, userId, googleSheetsController.getTodaySpreadsheetData());
+      } else if (callData.startsWith("tomorrow_message")) {
+        lastCommand.put(userId, TOMORROW_COMMAND);
+        calendarCommandReceived(chatId, userId, googleSheetsController.getTomorrowSpreadsheetData());
+      } else if (callData.startsWith("7days_message")) {
+        lastCommand.put(userId, SEVEN_DAYS_COMMAND);
+        calendarCommandReceived(chatId, userId, googleSheetsController.get7daysSpreadsheetData());
       } else if (callData.equals("reset_trial_message")) {
         selectedInstructor.remove(userId);
         selectedWorkout.remove(userId);
@@ -154,7 +192,11 @@ public class TelegramBot extends TelegramLongPollingBot {
         }
 
         if (lastStep == null) {
-          defaultCommandReceived(chatId, userId);
+          startCommandReceived(chatId,
+                  update.getMessage().getChat().getFirstName(),
+                  update.getMessage().getChat().getUserName(),
+                  userId,
+                  false);
         } else {
           trialCommandReceived(chatId, userId);
         }
@@ -176,13 +218,15 @@ public class TelegramBot extends TelegramLongPollingBot {
     }
   }
 
-  private void startCommandReceived(Long chatId, String name, String userName, Long userId) {
+  private void startCommandReceived(Long chatId, String name, String userName, Long userId, boolean sendStartMessage) {
     String answer =
       "Здравствуйте, " +
       name +
       "! Добро пожаловать в сеть клубов Территория Фитнеса. Чем мы можем Вам помочь?";
     sendMessage(chatId, answer, createStartButtons(), userId);
-    sendMessage(botConfig.getAdminChatId(), "Пользователь @" + userName + " начал использовать бот.", userId);
+    if (sendStartMessage) {
+      sendMessage(botConfig.getAdminChatId(), "Пользователь @" + userName + " начал использовать бот.", userId);
+    }
   }
 
   private void trialCommandReceived(Long chatId, Long userId) {
@@ -271,6 +315,28 @@ public class TelegramBot extends TelegramLongPollingBot {
     sendMessage(chatId, answer, userId);
   }
 
+  private void calendarCommandReceived(Long chatId, Long userId, List<TFCalendar> calendars) {
+    if (null == calendars) {
+      sendMessage(chatId, "Выберите расписание:", createCalendarButtons(), userId);
+    } else {
+
+      StringBuilder answer = new StringBuilder();
+      calendars.forEach(c -> {
+        if (!answer.isEmpty()) answer.append("\n\n");
+
+        answer.append(String.format("<b>%s %s</b> (%s) - <b>%s</b>", c.getCalDate(), c.getCalTime(), c.getCalDay(), c.getCalWorkout()));
+        answer.append("\nТренер: <b>").append(c.getCalInstructor()).append("</b>");
+        answer.append("\nЗал: <b>").append(c.getCalZone()).append("</b>");
+
+      });
+      sendMessage(chatId, answer.toString(), userId);
+    }
+
+    selectedWorkout.remove(userId);
+    selectedInstructor.remove(userId);
+    contact.remove(userId);
+  }
+
   private void sendMessage(Long chatId, String textToSend, Long userId) {
     sendMessage(chatId, textToSend, null, null, userId);
   }
@@ -312,6 +378,11 @@ public class TelegramBot extends TelegramLongPollingBot {
     feedback.setDescription("Обратная связь");
     feedback.setCallBack("feedback_message");
     buttons.add(feedback);
+
+    Button calendar = new Button();
+    calendar.setDescription("Расписание");
+    calendar.setCallBack("calendar_message");
+    buttons.add(calendar);
 
     buttons.forEach(b -> {
       List<InlineKeyboardButton> rowInline = new ArrayList<>();
@@ -411,6 +482,38 @@ public class TelegramBot extends TelegramLongPollingBot {
     rowInline.add(noButton);
 
     rowsInline.add(rowInline);
+    rowsInline.add(addResetButton());
+
+    markupInline.setKeyboard(rowsInline);
+
+    return markupInline;
+  }
+
+  private InlineKeyboardMarkup createCalendarButtons() {
+    InlineKeyboardMarkup markupInline = new InlineKeyboardMarkup();
+    List<List<InlineKeyboardButton>> rowsInline = new ArrayList<>();
+
+    List<InlineKeyboardButton> rowInline1 = new ArrayList<>();
+    InlineKeyboardButton todayButton = new InlineKeyboardButton();
+    todayButton.setText("Расписание на сегодня");
+    todayButton.setCallbackData("today_message");
+    rowInline1.add(todayButton);
+
+    List<InlineKeyboardButton> rowInline2 = new ArrayList<>();
+    InlineKeyboardButton tomorrowButton = new InlineKeyboardButton();
+    tomorrowButton.setText("Расписание на завтра");
+    tomorrowButton.setCallbackData("tomorrow_message");
+    rowInline2.add(tomorrowButton);
+
+    List<InlineKeyboardButton> rowInline3 = new ArrayList<>();
+    InlineKeyboardButton sevenDaysButton = new InlineKeyboardButton();
+    sevenDaysButton.setText("Расписание на 7 дней");
+    sevenDaysButton.setCallbackData("7days_message");
+    rowInline3.add(sevenDaysButton);
+
+    rowsInline.add(rowInline1);
+    rowsInline.add(rowInline2);
+    rowsInline.add(rowInline3);
     rowsInline.add(addResetButton());
 
     markupInline.setKeyboard(rowsInline);
