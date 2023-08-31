@@ -48,28 +48,36 @@ public class GoogleSheetsApiClient {
                 new Sheets.Builder(HTTP_TRANSPORT, JSON_FACTORY, getServiceCredentials())
                         .setApplicationName(APPLICATION_NAME)
                         .build();
-        ValueRange response = service.spreadsheets().values()
-                .get(spreadsheetId, "A1:F")
-                .execute();
 
-        List<List<Object>> values = response.getValues();
-        if (values == null || values.isEmpty()) {
-            logger.warn("No data found.");
-        } else {
-            for (List row : values) {
-                if (row.size() < 6) continue;
+        service.spreadsheets().get(spreadsheetId).setIncludeGridData(false).execute().getSheets().forEach(sheet -> {
+            ValueRange response = null;
+            try {
+                response = service.spreadsheets().values()
+                        .get(spreadsheetId, sheet.getProperties().getTitle()+"!A1:F")
+                        .execute();
 
-                TFCalendar calendar = new TFCalendar();
-                calendar.setCalDate(row.get(0).toString());
-                calendar.setCalDay(row.get(1).toString());
-                calendar.setCalTime(row.get(2).toString());
-                calendar.setCalWorkout(row.get(3).toString());
-                calendar.setCalInstructor(row.get(4).toString());
-                calendar.setCalZone(row.get(5).toString());
+                List<List<Object>> values = response.getValues();
+                if (values == null || values.isEmpty()) {
+                    logger.warn("No data found.");
+                } else {
+                    for (List row : values) {
+                        if (row.size() < 6) continue;
 
-                cals.add(calendar);
+                        TFCalendar calendar = new TFCalendar();
+                        calendar.setCalDate(row.get(0).toString());
+                        calendar.setCalDay(row.get(1).toString());
+                        calendar.setCalTime(row.get(2).toString());
+                        calendar.setCalWorkout(row.get(3).toString());
+                        calendar.setCalInstructor(row.get(4).toString());
+                        calendar.setCalZone(row.get(5).toString());
+
+                        cals.add(calendar);
+                    }
+                }
+            } catch (IOException e) {
+                logger.error("Failed to parse {} {}", sheet.getProperties().getTitle(), e);
             }
-        }
+        });
 
         return cals;
     }
