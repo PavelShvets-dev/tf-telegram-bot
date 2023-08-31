@@ -61,12 +61,18 @@ public class TelegramBot extends TelegramLongPollingBot {
   private final String downArrow = "\u2B07";
   private final String leftArrow = "\u2190";
 
+  private final List<String> bans = List.of("null");
+
   @Override
   public void onUpdateReceived(Update update) {
     if (update.hasMessage() && update.getMessage().hasText()) {
       String messageText = update.getMessage().getText();
       long chatId = update.getMessage().getChatId();
       Long userId = update.getMessage().getFrom().getId();
+
+      if (bans.contains(update.getMessage().getFrom().getUserName())) {
+        return;
+      }
 
       switch (messageText) {
         case START_COMMAND:
@@ -142,6 +148,10 @@ public class TelegramBot extends TelegramLongPollingBot {
       long chatId = update.getCallbackQuery().getMessage().getChatId();
       Long userId = update.getCallbackQuery().getFrom().getId();
 
+      if (bans.contains(update.getCallbackQuery().getFrom().getUserName())) {
+        return;
+      }
+
       if (callData.equals("trial_message")) {
         lastCommand.put(userId, TRIAL_COMMAND);
         selectedInstructor.remove(userId);
@@ -204,6 +214,10 @@ public class TelegramBot extends TelegramLongPollingBot {
     } else if (update.hasMessage() && update.getMessage().getContact() != null) {
       long chatId = update.getMessage().getChatId();
       Long userId = update.getMessage().getFrom().getId();
+
+      if (bans.contains(update.getMessage().getFrom().getUserName())) {
+        return;
+      }
 
       contact.put(userId, update.getMessage().getContact().getPhoneNumber() + ", "
               + update.getMessage().getContact().getFirstName() + " "
