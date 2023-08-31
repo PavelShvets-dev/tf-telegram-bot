@@ -334,16 +334,22 @@ public class TelegramBot extends TelegramLongPollingBot {
       sendMessage(chatId, "Выберите расписание:", createCalendarButtons(), userId);
     } else {
 
-      StringBuilder answer = new StringBuilder();
-      calendars.forEach(c -> {
-        if (!answer.isEmpty()) answer.append("\n\n");
+      if (calendars.size() < 1) {
+        sendMessage(chatId, "На выбранную дату классов больше (или пока) нет :(", userId);
+      } else {
+        StringBuilder answer = new StringBuilder();
+        calendars.forEach(c -> {
+          if (!answer.isEmpty()) answer.append("\n\n");
 
-        answer.append(String.format("<b>%s %s</b> (%s) - <b>%s</b>", c.getCalDate(), c.getCalTime(), c.getCalDay(), c.getCalWorkout()));
-        answer.append("\nТренер: <b>").append(c.getCalInstructor()).append("</b>");
-        answer.append("\nЗал: <b>").append(c.getCalZone()).append("</b>");
+          answer.append(String.format("<b>%s %s</b> (%s) - <b>%s</b>", c.getCalDate(), c.getCalTime(), c.getCalDay(), c.getCalWorkout()));
+          answer.append("\nТренер: <b>").append(c.getCalInstructor()).append("</b>");
+          answer.append("\nЗал: <b>").append(c.getCalZone()).append("</b>");
 
-      });
-      sendMessage(chatId, answer.toString(), userId);
+        });
+        sendMessage(chatId, answer.toString(), userId);
+      }
+
+      lastCommand.remove(userId);
     }
 
     selectedWorkout.remove(userId);
